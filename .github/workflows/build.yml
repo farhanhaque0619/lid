@@ -10,6 +10,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      preview:
+        description: Print downscaled UI snapshots into the job log (for reviewing the screens without downloading the artifact)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -71,6 +76,20 @@ jobs:
           name: test-results
           path: LidTapApp/build/test-artifacts/
           if-no-files-found: ignore
+
+      - name: Snapshot preview in the log
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.preview == 'true'
+        run: |
+          # The UI snapshot tests render every screen offscreen. Print the key ones as small JPEGs, base64
+          # encoded, so they can be reviewed from the log alone.
+          cd LidTapApp/build/test-artifacts
+          for f in settings_welcome settings_zones menu_panel_practice calibration_intro settings_detection menu_panel_trained calibration_done; do
+            [ -f "$f.png" ] || { echo "missing $f.png"; continue; }
+            sips -Z 820 -s format jpeg -s formatOptions 55 "$f.png" --out "$RUNNER_TEMP/$f.jpg" >/dev/null
+            echo "=====BEGIN $f.jpg====="
+            base64 -b 76 -i "$RUNNER_TEMP/$f.jpg"
+            echo "=====END $f.jpg====="
+          done
 
   release:
     name: Publish release
