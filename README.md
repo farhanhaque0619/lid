@@ -11,16 +11,39 @@ about its hinge, the gyroscope feels that twist about 800 times a second, and a 
 *your* taps works out which part of the screen you tapped. Everything runs on your Mac. No network access,
 no account, nothing leaves the machine; see [AUDIT.md](AUDIT.md) for what the code was checked for.
 
+- [What it actually does](#what-it-actually-does)
 - [Download and install](#download-and-install)
 - [Permissions, and why](#permissions-and-why)
 - [Calibrate](#calibrate)
+- [Practice mode, then turn actions on](#practice-mode-then-turn-actions-on)
 - [Zones and actions](#zones-and-actions)
+- [Why did my tap do nothing?](#why-did-my-tap-do-nothing)
 - [Fix a zone that misreads](#fix-a-zone-that-misreads)
 - [Turn it off, remove it](#turn-it-off-remove-it)
 - [Which Macs work](#which-macs-work)
 - [Build it yourself](#build-it-yourself)
 - [What this fork changes](#what-this-fork-changes)
 - [License](#license)
+
+## What it actually does
+
+LidTap is a menu bar app that waits for you to tap the lid of your MacBook. Not the trackpad, not the
+keyboard: the screen itself, or its bezel. It splits the screen into a grid of zones, two by two to start,
+and when you tap inside a zone it does the one thing you assigned to that zone, such as switching to the
+next desktop or pausing your music.
+
+It can do this because every Apple Silicon MacBook since the M2 has a motion sensor in its base. A tap on
+the lid twists the whole laptop about the hinge by a tiny amount, and the sensor feels that twist about
+800 times a second. A tap on the top-left of the screen twists the machine differently from a tap on the
+bottom-right, so after you show it fifteen examples per zone, a small model on your Mac can tell them apart.
+It also records twenty seconds of you typing, clicking and knocking the desk, so it knows what *not* to react
+to. Everything stays on the Mac. There is no touchscreen involved, no camera, no network.
+
+What it is good at: a few physical shortcuts you can hit without looking, especially when your hands are
+away from the keyboard. What it is not: a touchscreen. It cannot track a finger, drag, or feel a held press,
+and it is coarse, a handful of zones rather than pixels. Expect roughly nineteen out of twenty taps to land
+in the right zone on a 2×2 grid; the rest are ignored rather than guessed, and the menu bar panel tells you
+why.
 
 ## Download and install
 
@@ -62,7 +85,7 @@ LidTap asks for these, in roughly this order. None of them is granted by the ins
 |---|---|---|---|
 | **Gatekeeper** ("unidentified developer" / "could not verify") | First launch | Nothing: the build is ad hoc signed, not notarized | See step 4 above |
 | **Input Monitoring** | First launch | A listen-only event tap that records the *time* of keystrokes, clicks, scrolls and pointer moves so bumps from typing are not read as taps. Key codes are discarded. On some Macs the motion sensor itself will not stream until this is granted | Taps work with a coarser typing filter; if the motion sensor stays at 0 Hz in Settings › Permissions, grant it |
-| **Accessibility** | The first time a zone action runs, or **Settings › Permissions › Allow…** | Posting the keystrokes the actions need: ⌃← and ⌃→ for Spaces, the Play/Pause, Next and Previous media keys, ⌘N in Notes, and the camera shortcut in Zoom, Teams, Webex or Meet for Privacy Guard | Desktop and music zones do nothing (the app tells you). Privacy Guard still blurs and mutes |
+| **Accessibility** | The first time a zone action runs, or **Settings › Permissions › Allow…** | Posting the keystrokes the actions need: ⌃← and ⌃→ for Spaces, the media and volume keys, ⌘N in Notes, ⌃⌘Q for Lock Screen, any Keyboard Shortcut you record, and the camera shortcut in Zoom, Teams, Webex or Meet for Privacy Guard | Those zones do nothing and the app tells you. Privacy Guard still blurs and mutes; Open App, Open Link, Run Apple Shortcut and Mute Microphone work without it |
 | **Automation** (for Chrome, Edge, Brave or Safari) | Only when Privacy Guard fires while a camera is on, no Zoom, Teams or Webex is running, and that browser is | An AppleScript that looks through the browser's open tabs for a Google Meet address and brings it forward | Privacy Guard skips the camera step |
 
 LidTap never asks for **Microphone** or **Camera** access. Privacy Guard mutes by setting the input devices'
@@ -82,8 +105,8 @@ Before you start: sit the laptop on a desk, open the lid to the angle you normal
 off the keyboard and trackpad while tapping. LidTap ignores taps that land right after a click or while the
 pointer moves, so a hand resting on the trackpad will make it refuse taps.
 
-1. Click the hand icon in the menu bar, then **Calibrate**. The display goes dark and shows the zones with a
-   dot in the highlighted one.
+1. Click the hand icon in the menu bar, then **Calibrate**. The display goes dark and shows a short panel
+   with the tips below. Taps don't count until you click **Start**.
 2. **Tap the dot** with a quick, light fingertip flick, **about half a second apart**, as many times as the zone
    asks (five at a time, fifteen per zone in total, in a shuffled order). **Never press hard on the display**:
    LidTap feels the whole laptop move, so force gains nothing, and pressing on a screen can leave marks.
@@ -100,6 +123,19 @@ pointer moves, so a hand resting on the trackpad will make it refuse taps.
 With crisp taps on 2×2, upstream measured 95% correct. Taps LidTap is not sure about are ignored rather than
 guessed, and the menu bar panel shows what happened to your last tap.
 
+## Practice mode, then turn actions on
+
+After a fresh install LidTap starts in **practice mode**: every tap you make after calibrating shows a
+ripple in the zone it hit and the name of the action that *would* run, and nothing runs. Use it for a minute
+to see what LidTap sees. When the readings look right, click **Turn On Actions** in the menu bar panel, on the
+calibration summary, or in the Welcome pane. You can switch practice mode back on any time in
+**Settings › General**, for example after moving to a different desk.
+
+The **Welcome** pane in Settings (opened automatically on first run, and from **Settings › General › Show
+Welcome** later) is a four-step checklist with live status: sensor streaming, Accessibility granted,
+calibrated, actions on. It also explains good taps, what each outcome means, and what to try when something
+is off.
+
 ## Zones and actions
 
 The default 2×2 layout is already what this build is meant for:
@@ -111,15 +147,55 @@ The default 2×2 layout is already what this build is meant for:
 | 3 | Bottom left | **Play / Pause**: Music, Spotify, YouTube, whatever is playing |
 | 4 | Bottom right | **Privacy Guard**: mute every microphone, hide every screen, and turn the meeting camera off |
 
-To change a zone: **Settings › Zones**, click the zone on the drawn display, pick an action. **Try It** runs the
-action right away so you can check it. Right-clicking a zone in the menu bar panel does the same. Other actions
-available: Next Track, Previous Track, New Note, Open App (launch or bring forward any app), Nothing.
+To change a zone: **Settings › Zones**, click the zone on the drawn display, pick an action. A sentence under
+the picker says what it does, **Try It** runs it right away so you can check, and the zone tells you if
+anything is still missing (an app, a key combination, a name, a link). Right-clicking a zone in the menu bar
+panel offers the same list.
+
+| Group | Action | What it does | Needs |
+|---|---|---|---|
+| Desktop | **Desktop Left / Right** | Switch to the Space on the left or right | Accessibility |
+| Desktop | **Mission Control** | Show every open window and desktop | nothing |
+| Media | **Play / Pause, Next Track, Previous Track** | Control whatever is playing | Accessibility |
+| Media | **Volume Up / Down, Mute Sound** | One volume step, or mute the speakers | Accessibility |
+| Apps | **New Note** | Open Notes with a fresh note | Accessibility |
+| Apps | **Open App** | Launch an app, or bring it to the front if it is already open | pick the app |
+| Apps | **Open Link** | Open a web address, or a link such as `shortcuts://` or `raycast://`, in its app | type the link |
+| Custom | **Keyboard Shortcut** | Press a combination you record, exactly as if you typed it: ⇧⌘4 for a screenshot, ⌘Space for Spotlight, the shortcut you gave any app | Accessibility, record the keys |
+| Custom | **Run Apple Shortcut** | Run one of your Apple Shortcuts by name, in the background. Anything a Shortcut can do, a tap can do: toggle a Focus, start a timer, run a script | type the name |
+| System | **Mute Microphone** | Mute every microphone, or unmute if muted | nothing |
+| System | **Lock Screen** | Lock the Mac right away | Accessibility |
+| Privacy | **Privacy Guard** | Mute every mic, turn the meeting camera off, hide every screen | nothing; Accessibility for the camera step |
+
+Combinations macOS reserves for itself, such as ⌘Tab, can't be recorded as a Keyboard Shortcut; put them in a
+Shortcut instead. **Open Link** hands the address to your default browser or the app that owns the link; LidTap
+itself still never connects to anything.
+
+**Tap twice to run.** Any zone can be set to ask for a second tap: the first tap shows what would run, and a
+second tap in the same zone within three seconds runs it. Turn it on per zone in **Settings › Zones** for
+anything you'd rather not trigger by accident, such as Lock Screen or a Shortcut that sends a message.
 
 **Privacy Guard** needs to be at least 85% sure of the zone before it fires. Tap the zone again, or click
 anywhere, to come back: the screens return, the microphones are restored exactly as they were, and the camera
 is turned back on in the meeting app. In **Settings › Zones** (with the Guard zone selected) you can turn
 off **"Turn the camera off in meetings"**. Consider starting that way: the camera step sends the meeting app's
 standard shortcut, and if you have remapped shortcuts in Zoom, Teams or Meet, it could trigger something else.
+
+## Why did my tap do nothing?
+
+Open the menu bar panel. Under the drawn display it shows the last tap, what happened to it, and a tip:
+
+- **Ignored** means LidTap chose not to count it: a keystroke within a third of a second, a trackpad click,
+  a moving pointer, a scroll, the lid moving, or the screen still wobbling from the last tap. Each has its
+  own tip, usually "hands off the trackpad" or "wait half a second".
+- **Too soft** means the flick was below the minimum strength. A little crisper is enough.
+- **Not sure** means the recogniser wasn't confident, or the tap was unlike anything recorded. Tap nearer the
+  calibration dot, or add taps to that zone.
+- **Practice** means it was recognised and nothing ran because practice mode is on.
+- **Tap again** means that zone asks for a second tap.
+
+**Settings › Detection** shows the same tip under the live motion trace, where you can watch your taps cross
+the trigger line.
 
 ## Fix a zone that misreads
 
@@ -131,7 +207,7 @@ standard shortcut, and if you have remapped shortcuts in Zoom, Teams or Meet, it
   **Calibrate Again…**. Only that zone is asked for.
 - **Taps refused as too soft, or bumps counted as taps:** **Settings › Detection** has the live motion trace and
   the sliders. Lower **Minimum tap strength** only if genuinely crisp taps are refused; raise **Minimum** if
-  desk knocks register.
+  desk knocks register. **Reset to Defaults** puts everything back.
 - **Wrong zone fires:** in **Training**, raise **Act only when this sure** so LidTap says "Not sure" instead of
   guessing, or lower **Ignore unfamiliar taps** to be stricter.
 - **Start over:** **Training › Delete All…**, or switch grids in **Zones › Layout** (that discards the zone taps
@@ -225,7 +301,19 @@ Compared with [upstream](https://github.com/harsha20599/lidtap) at commit `158d3
 - [AUDIT.md](AUDIT.md): a plain-language audit of what the app reads, what it can do, which permissions it
   needs and why, and confirmation that nothing in it talks to the network.
 
-The detection, recognition and action code is otherwise upstream's. The Python prototype (`lidtap/`,
+Version 1.1 adds, on top of that:
+
+- **Nine new actions**: Keyboard Shortcut (with a recorder), Run Apple Shortcut, Open Link, Mission Control,
+  Mute Microphone, Volume Up, Volume Down, Mute Sound and Lock Screen. The picker is grouped and every action
+  has a one-line explanation.
+- **Tap twice to run**, per zone.
+- **Practice mode**, on for a fresh install, so nothing runs until you have seen the readings and turned actions on.
+- **A tips panel before calibration**; taps don't count until Start.
+- **A Welcome pane** with a live checklist, and **Reset to Defaults** in Detection and Training.
+- **A tip for every ignored or rejected tap** in the menu bar panel and the Detection pane, and reason-specific
+  on-screen feedback.
+
+The detection and recognition code is upstream's. The Python prototype (`lidtap/`,
 `PROTOTYPE.md`), the research notes and the report are kept as they were.
 
 ## License

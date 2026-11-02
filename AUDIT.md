@@ -36,13 +36,23 @@ in the app (the Python prototype in `lidtap/` has shell-command actions; it is a
 | Play/Pause, Next, Previous | Posts the system media-key events (needs Accessibility) |
 | New Note | Opens Notes, waits for it to be frontmost, posts ⌘N (needs Accessibility) |
 | Open App | `NSWorkspace` launch or activate, by the bundle identifier you chose in Settings |
+| Mission Control | Opens the system's Mission Control app (`com.apple.exposelauncher`); falls back to ⌃↑ |
+| Volume Up / Down, Mute Sound | Posts the system volume key events (needs Accessibility) |
+| Keyboard Shortcut | Posts the key combination you recorded in Settings, as key down and up (needs Accessibility). The recorder uses a local event monitor inside LidTap's own window, which needs no permission |
+| Run Apple Shortcut | Starts `/usr/bin/shortcuts run <name>` as a child process: a fixed executable with the name as an argument, no shell. What the Shortcut then does is up to the Shortcut and Apple's own permission prompts |
+| Open Link | Hands the address to `NSWorkspace`, which opens it in your default browser or the app owning the scheme. LidTap itself makes no connection; your browser does. `file:`, `javascript:` and `data:` links are refused |
+| Mute Microphone | The same CoreAudio mute as Privacy Guard, as a toggle, with its own saved state |
+| Lock Screen | Posts ⌃⌘Q (needs Accessibility) |
 | Privacy Guard | A blur panel over every screen at screen-saver level; mutes every input device and re-asserts the mute once a second; if a camera is in use and Accessibility is granted, brings the meeting app forward and posts its camera-toggle shortcut (⌘⇧V Zoom, ⌘⇧O Teams, ⌘⇧V Webex, ⌘E Google Meet), then checks the camera actually stopped. On release it restores the microphones, posts the shortcut again and returns to the previous app |
 
 Guard rails in the code: a tap must be at least as confident as the "Act only when this sure" setting
 (default 60%) and at least 85% for Privacy Guard; taps unlike anything recorded are rejected as unfamiliar;
 taps within 0.3 s of a key, click or scroll, during pointer movement, during a typing burst, or while the lid
 moves are ignored. While Privacy Guard is on, no other zone acts. A click anywhere releases it and the click
-is swallowed, so it does not land on whatever is underneath.
+is swallowed, so it does not land on whatever is underneath. Since version 1.1, a fresh install runs in
+practice mode (recognise and show, run nothing) until the user turns actions on, and any zone can require a
+second tap within three seconds before it runs. Calibration taps are not recorded until the user clicks Start
+on the tips panel.
 
 ## Permissions it asks for
 
@@ -65,6 +75,11 @@ framework (`NWConnection`, `NWListener`), `CFSocket`, `socket(`, `getaddrinfo`, 
 System Settings. The frameworks it links are AppKit, SwiftUI, Charts, IOKit, CoreAudio, CoreMediaIO and
 ServiceManagement. The build workflow repeats the check on the compiled binary.
 
+Two actions added in version 1.1 reach outside the app without the app itself opening a connection: **Open
+Link** asks macOS to open an address you typed, in your browser or the owning app, and **Run Apple Shortcut**
+runs a Shortcut you named, which can do whatever that Shortcut does. Both run only what you configured for a
+zone; neither is assigned by default.
+
 Elsewhere in the repository, two things do touch the network and neither is part of the app:
 
 - The Python prototype (`lidtap/server.py`) runs a web GUI on `127.0.0.1:8765`, protected by a per-run token,
@@ -76,7 +91,7 @@ Elsewhere in the repository, two things do touch the network and neither is part
 
 | Path | Content |
 |---|---|
-| `~/Library/Application Support/LidTap/config.json` | Settings and zone actions |
+| `~/Library/Application Support/LidTap/config.json` | Settings and zone actions, including any key combinations, Shortcut names and links you entered |
 | `~/Library/Application Support/LidTap/dataset.json` | Every recorded tap: label, time, lid angle, peak values and the raw 200 ms gyroscope and accelerometer windows. This is your calibration data; it never leaves the folder |
 | `~/Library/Application Support/LidTap/status.json` | A one-line status snapshot rewritten each second (rate, lid angle, last ten tap outcomes), used by the tests |
 | `~/Library/Preferences/dev.lidtap.LidTap.plist` | The last Settings pane you looked at |
@@ -115,7 +130,8 @@ grep -rniE 'URLSession|NWConnection|NWListener|CFSocket|socket\(|getaddrinfo|htt
 grep -rn 'Process()\|osascript\|NSAppleScript' LidTapApp/Sources
 ```
 
-The first prints nothing. The second prints only the Google Meet tab finder in `MeetingControl.swift`.
+The first prints nothing. The second prints the Google Meet tab finder in `MeetingControl.swift` and the
+Shortcuts runner in `ActionRunner.swift`, both with a fixed executable path and no shell.
 
 ## Build record
 

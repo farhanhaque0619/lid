@@ -15,8 +15,10 @@ Command Line Tools 26.1 install (a stray `module.modulemap`) with a VFS overlay;
 
 ## Zone actions
 
-Desktop Left / Right · New Note · Play/Pause · Next / Previous Track · Open App (launch or bring to front) ·
-Privacy Guard.
+Desktop Left / Right · Mission Control · Play/Pause · Next / Previous Track · Volume Up / Down · Mute Sound ·
+New Note · Open App (launch or bring to front) · Open Link · Keyboard Shortcut (recorded) · Run Apple Shortcut ·
+Mute Microphone · Lock Screen · Privacy Guard. Any zone can require a second tap before it runs, and a fresh
+install starts in practice mode (recognise and show, run nothing).
 
 **Privacy Guard** blurs every screen instantly, mutes every microphone at the system level (restored
 exactly afterwards), and if a camera is in use, turns it off in Zoom, Microsoft Teams, Webex or
@@ -40,6 +42,8 @@ The build is ad-hoc signed, so after each rebuild macOS may need Accessibility s
 | `Sources/LidTap/Core/Features.swift` | 70 tap features, identical to the Python prototype |
 | `Sources/LidTap/Core/Classifiers.swift`, `ZoneModel.swift` | Logistic regression, kNN, nearest centroid; cross-validation; open-set rejection |
 | `Sources/LidTap/Core/Store.swift` | Config and dataset in `~/Library/Application Support/LidTap` |
-| `Sources/LidTap/Actions/` | Zone actions, key/media events, Privacy Guard, meeting camera control |
+| `Sources/LidTap/Actions/` | Zone actions, key/media events, recorded key combos, Privacy Guard, meeting camera control, the Shortcuts runner |
+| `Sources/LidTap/Core/Explain.swift` | The plain-language tip for every tap outcome |
+| `Sources/LidTap/UI/ShortcutRecorder.swift` | The key-combination recorder used by the Keyboard Shortcut action |
 | `Sources/LidTap/UI/` | Menu bar panel, Settings, full-screen calibration, on-screen tap feedback |
 | `Sources/LidTap/App/` | App entry, central model |
