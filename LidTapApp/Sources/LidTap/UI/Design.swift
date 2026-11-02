@@ -40,22 +40,33 @@ extension NSScreen {
 extension View {
     /// Liquid Glass on macOS 26+, a regular material before. Only for controls floating over full-screen
     /// surfaces (calibration, Privacy Guard, tap feedback): never on settings content.
+    ///
+    /// `glassEffect` exists only in the macOS 26 SDK (Xcode 26, Swift 6.2). Older toolchains compile the
+    /// material branch alone, so the app still builds with Xcode 15/16 for macOS 14 and 15 machines.
     @ViewBuilder
     func floatingGlass(cornerRadius: CGFloat) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
             self.background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
+        #else
+        self.background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        #endif
     }
 
     @ViewBuilder
     func floatingGlassCapsule() -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26, *) {
             self.glassEffect(.regular, in: .capsule)
         } else {
             self.background(.regularMaterial, in: Capsule())
         }
+        #else
+        self.background(.regularMaterial, in: Capsule())
+        #endif
     }
 }
 

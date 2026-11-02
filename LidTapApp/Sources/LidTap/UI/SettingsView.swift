@@ -550,6 +550,14 @@ private struct GeneralPane: View {
             } footer: {
                 Text("Tap gently with a fingertip. LidTap feels the whole laptop move, so there's never a need to press: pressing hard on a display can leave marks.")
             }
+            Section {
+                LabeledContent("Based on", value: "LidTap by Yemcube (Instagram @yem.cube)")
+                LabeledContent("License", value: "LidTap License: MIT with attribution; commercial use by permission")
+            } header: {
+                Text("About")
+            } footer: {
+                Text("Built from source for private use. If you share anything based on this app, credit \"Based on LidTap by Yemcube\" with a link to instagram.com/yem.cube.")
+            }
         }
     }
 }

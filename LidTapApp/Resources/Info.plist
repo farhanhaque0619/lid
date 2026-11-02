@@ -15,6 +15,6 @@
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSAppleEventsUsageDescription</key><string>LidTap brings your Google Meet tab to the front so Privacy Guard can turn your camera off.</string>
-    <key>NSHumanReadableCopyright</key><string>Zone taps from your MacBook's motion sensor.</string>
+    <key>NSHumanReadableCopyright</key><string>Based on LidTap by Yemcube (Instagram @yem.cube). Zone taps from your MacBook's motion sensor.</string>
 </dict>
 </plist>
