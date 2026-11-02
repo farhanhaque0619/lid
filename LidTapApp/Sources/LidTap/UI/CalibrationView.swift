@@ -55,6 +55,7 @@ struct CalibrationView: View {
             DS.screen.ignoresSafeArea()
             if let cal = app.calibration {
                 switch cal.phase {
+                case .taps where cal.showIntro: IntroStage(cal: cal).transition(.opacity)
                 case .taps: TapStage(cal: cal)
                 case .noisePrompt: NoisePromptStage(cal: cal).transition(.opacity)
                 case .noise(let until): NoiseStage(until: until).transition(.opacity)
@@ -69,12 +70,50 @@ struct CalibrationView: View {
 
     private var phaseKey: String {
         switch app.calibration?.phase {
-        case .taps: "taps"
+        case .taps: app.calibration?.showIntro == true ? "intro" : "taps"
         case .noisePrompt: "prompt"
         case .noise: "noise"
         case .training: "training"
         case .done: "done"
         case nil: "none"
+        }
+    }
+}
+
+// MARK: - Intro
+
+/// The things people get wrong, said once before the first tap. Taps don't count until Start.
+private struct IntroStage: View {
+    @Environment(AppModel.self) private var app
+    let cal: CalibrationState
+
+    var body: some View {
+        StagePanel {
+            Image(systemName: "hand.tap").font(.system(size: 40, weight: .light)).foregroundStyle(.white)
+            Text(app.isTrained ? "Let's add more taps" : "Let's learn your taps").font(.title.weight(.semibold))
+            VStack(alignment: .leading, spacing: 12) {
+                tip("desktopcomputer", "Put the laptop on a desk with the lid at the angle you normally use, and keep it there.")
+                tip("hand.point.up.left", "Tap the dot with a quick, light fingertip flick. Never press: the sensor feels the whole laptop move, and pressing on a display can leave marks.")
+                tip("timer", "Wait about half a second between taps, until the screen is still.")
+                tip("hand.raised.slash", "Hands off the keyboard and trackpad while you tap. A click or a moving pointer makes a tap count as a bump.")
+                tip("scope", "\(cal.grid.count) zones, \(cal.sequence.count) taps in all, in a shuffled order. About two minutes. Esc stops at any time and keeps what you've done.")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .multilineTextAlignment(.leading)
+            HStack(spacing: 10) {
+                Button("Cancel") { app.endCalibration() }
+                    .controlSize(.large)
+                Button("Start") { app.beginCalibrationTaps() }
+                    .controlSize(.large).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func tip(_ symbol: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol).font(.body).frame(width: 22).foregroundStyle(.secondary)
+            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -353,12 +392,26 @@ private struct DoneStage: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: 520)
                     .fixedSize(horizontal: false, vertical: true)
+                if app.config.practiceMode {
+                    Label {
+                        Text("Practice mode is on: each tap shows the zone it hit and nothing runs. Try a few taps, then turn actions on from the menu bar or here.")
+                            .font(.callout)
+                    } icon: {
+                        Image(systemName: "graduationcap.fill").foregroundStyle(.blue)
+                    }
+                    .frame(maxWidth: 520)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             } else {
                 Text("Not enough taps to learn from yet").font(.title.weight(.semibold))
             }
             HStack(spacing: 10) {
                 Button("Add More Taps") { app.startCalibration(perZone: app.usableCount(for: zoneLabel(0)) + 5) }
                     .controlSize(.large)
+                if app.config.practiceMode && app.report != nil {
+                    Button("Turn On Actions") { app.config.practiceMode = false }
+                        .controlSize(.large)
+                }
                 Button("Done") { app.endCalibration() }
                     .controlSize(.large).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }

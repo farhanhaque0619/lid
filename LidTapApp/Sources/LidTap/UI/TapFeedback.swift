@@ -15,10 +15,14 @@ final class TapFeedback {
         var zone: Int?
         var grid = Grid(rows: 2, cols: 2)
         var action: ZoneAction?
+        /// Replaces the action's title (e.g. "Practice · Desktop Left", "Tap again to confirm").
+        var title: String?
+        /// Shown when there is no zone (why the tap was not used).
+        var message: String?
         var token = 0
     }
 
-    func show(zone: Int?, grid: Grid, action: ZoneAction?) {
+    func show(zone: Int?, grid: Grid, action: ZoneAction?, title: String? = nil, message: String? = nil) {
         guard let screen = NSScreen.builtIn else { return }
         if panel == nil {
             let p = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -36,6 +40,8 @@ final class TapFeedback {
         model.zone = zone
         model.grid = grid
         model.action = action
+        model.title = title
+        model.message = message
         model.token += 1
         panel?.alphaValue = 1
         panel?.orderFrontRegardless()
@@ -67,7 +73,7 @@ private struct FeedbackView: View {
                     Ripple(color: tint, trigger: model.token)
                         .frame(width: min(w, h) * 0.9, height: min(w, h) * 0.9)
                     Label {
-                        Text(action.title).font(.title3.weight(.semibold))
+                        Text(model.title ?? action.title).font(.title3.weight(.semibold))
                     } icon: {
                         ActionGlyph(action: action, size: 20)
                     }
@@ -79,7 +85,7 @@ private struct FeedbackView: View {
                 }
                 .position(x: rect.midX, y: rect.midY)
             } else {
-                Label("Not sure which zone. Tap again", systemImage: "questionmark.circle")
+                Label(model.message ?? "Not sure which zone. Tap again", systemImage: "questionmark.circle")
                     .font(.callout.weight(.medium))
                     .padding(.horizontal, 16).padding(.vertical, 9)
                     .floatingGlassCapsule()

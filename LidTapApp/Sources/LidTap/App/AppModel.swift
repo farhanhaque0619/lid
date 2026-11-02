@@ -5,7 +5,7 @@ import SwiftUI
 
 /// What happened to one detected tap.
 struct TapRecord: Identifiable, Equatable {
-    enum Outcome: Equatable { case acted, rejected, ignored, recorded, guarded, untrained }
+    enum Outcome: Equatable { case acted, rejected, ignored, recorded, guarded, untrained, practiced, confirming }
 
     let id: Int
     let date: Date
@@ -44,6 +44,8 @@ struct CalibrationState: Equatable {
     /// Strength of the most recent tap during calibration (deg/s), for the coaching meter.
     var lastStrength: Double?
     var strengthID = 0
+    /// Shows the tips panel first; taps don't count until the user clicks Start.
+    var showIntro = false
 
     var target: String? { phase == .taps && position < sequence.count ? sequence[position] : nil }
     var remainingInBlock: Int {
@@ -80,8 +82,15 @@ final class AppModel {
     private(set) var tapFlash = false
     /// The zone that last answered a tap, with a counter so the same zone can ripple again.
     private(set) var ripple: (zone: Int, id: Int)?
-    /// Zone the Settings window should select when it opens (set from the menu panel's context menu).
+    /// Zone the Settings window should select when it opens (set from the menu panel's context menu),
+    /// and whether it should open the app chooser straight away.
     var settingsFocusZone: Int?
+    var settingsFocusPicksApp = false
+    /// How long a "tap twice" zone waits for its second tap.
+    @ObservationIgnored var confirmWindow: TimeInterval = 3
+    @ObservationIgnored private var pendingConfirm: (label: String, until: Date)?
+    /// The Mute Microphone action's own muter (Privacy Guard has a separate one).
+    @ObservationIgnored let micToggle = MicMuter()
     var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
 
     let privacyGuard: PrivacyGuard
@@ -126,7 +135,7 @@ final class AppModel {
         detector.settings = config.detector
         privacyGuard.muteMic = config.guardMutesMic
         privacyGuard.stopCamera = config.guardStopsCamera
-        performAction = { [unowned self] action in ActionRunner.perform(action, guardController: privacyGuard) }
+        performAction = { [unowned self] action in ActionRunner.perform(action, guardController: privacyGuard, mic: micToggle) }
     }
 
     func start() {
@@ -215,9 +224,10 @@ final class AppModel {
                         peakG: s.peakG, peakA: s.peakA, lid: s.lid, threshold: 1, noise: 0.1, gated: gated)
     }
 
-    func showSettings(pane: String? = nil, zone: Int? = nil) {
+    func showSettings(pane: String? = nil, zone: Int? = nil, pickApp: Bool = false) {
         if let pane { UserDefaults.standard.set(pane, forKey: "settingsPane") }
         if let zone { settingsFocusZone = zone }
+        settingsFocusPicksApp = pickApp
         SettingsWindow.shared.show()
     }
 
@@ -247,7 +257,7 @@ final class AppModel {
         if var cal = calibration {
             switch cal.phase {
             case .taps:
-                guard let label = cal.target else { return }
+                guard !cal.showIntro, let label = cal.target else { return }
                 cal.lastStrength = event.peakG
                 cal.strengthID += 1
                 // Record only crisp taps: a soft tap barely above the sensor's background motion teaches the wrong thing.
@@ -277,6 +287,7 @@ final class AppModel {
         guard config.enabled else { return }
         if event.peakG < config.minTapStrength {
             record(.rejected, nil, nil, String(format: "Too soft (%.1f °/s). Tap a little crisper", event.peakG))
+            if presentsUI && config.showTapFeedback { TapFeedback.shared.show(zone: nil, grid: grid, action: nil, message: "Too soft. A quick, light flick is enough") }
             return
         }
         guard let model else {
@@ -300,15 +311,41 @@ final class AppModel {
         let confidence = p.confidence
         if let reason = p.rejected ?? (confidence < floor ? "Not sure which zone" : nil) {
             record(.rejected, p.label, confidence, reason)
-            if presentsUI && config.showTapFeedback { TapFeedback.shared.show(zone: nil, grid: grid, action: nil) }
+            if presentsUI && config.showTapFeedback {
+                let message = reason == "Not sure which zone" ? "Not sure which zone. Tap again" : reason
+                TapFeedback.shared.show(zone: nil, grid: grid, action: nil, message: message)
+            }
             return
         }
+        let zone = zoneIndex(p.label)
+        // Practice mode: show the reading, run nothing. The way to learn what LidTap sees before trusting it.
+        if config.practiceMode {
+            record(.practiced, p.label, confidence, "Practice: \(action.title)")
+            if let z = zone { ripple = (z, (ripple?.id ?? 0) + 1) }
+            if presentsUI && config.showTapFeedback { TapFeedback.shared.show(zone: zone, grid: grid, action: action, title: "Practice · \(action.title)") }
+            if presentsUI && config.playSounds { NSSound(named: "Pop")?.play() }
+            return
+        }
+        // Tap twice: the first tap says what would run, a second tap in the same zone soon after runs it.
+        if action.confirmTwice && action.kind != .none {
+            if let pending = pendingConfirm, pending.label == p.label, Date() < pending.until {
+                pendingConfirm = nil
+            } else {
+                pendingConfirm = (p.label, Date().addingTimeInterval(confirmWindow))
+                record(.confirming, p.label, confidence, "Tap again to run \(action.title)")
+                if let z = zone { ripple = (z, (ripple?.id ?? 0) + 1) }
+                if presentsUI && config.showTapFeedback { TapFeedback.shared.show(zone: zone, grid: grid, action: action, title: "Tap again to confirm") }
+                return
+            }
+        }
         let error = performAction(action)
-        record(.acted, p.label, confidence, error ?? action.title)
-        if let z = zoneIndex(p.label) { ripple = (z, (ripple?.id ?? 0) + 1) }
+        var detail = error ?? action.title
+        if error == nil && action.kind == .muteMic { detail = micToggle.isEngaged ? "Microphone muted" : "Microphone on" }
+        record(.acted, p.label, confidence, detail)
+        if let z = zone { ripple = (z, (ripple?.id ?? 0) + 1) }
         Log.action.notice("Zone \(p.label, privacy: .public) (\(Int(confidence * 100))%) -> \(action.title, privacy: .public)\(error.map { " failed: " + $0 } ?? "", privacy: .public)")
         if presentsUI && config.showTapFeedback && action.kind != .privacyGuard {
-            TapFeedback.shared.show(zone: zoneIndex(p.label), grid: grid, action: action)
+            TapFeedback.shared.show(zone: zone, grid: grid, action: action, title: action.kind == .muteMic ? detail : nil)
         }
         if presentsUI && config.playSounds && action.kind != .none && error == nil { NSSound(named: "Pop")?.play() }
     }
@@ -406,8 +443,13 @@ final class AppModel {
                 need[z]! -= take
             }
         }
-        calibration = CalibrationState(grid: target, perZone: perZone, sequence: sequence)
+        calibration = CalibrationState(grid: target, perZone: perZone, sequence: sequence, showIntro: presentsUI)
         if presentsUI { CalibrationWindow.shared.show() }
+    }
+
+    /// The Start button on the calibration tips panel.
+    func beginCalibrationTaps() {
+        calibration?.showIntro = false
     }
 
     func undoLastCalibrationTap() {
@@ -536,11 +578,14 @@ final class AppModel {
 
     func setAction(_ action: ZoneAction, for zone: Int) { config.actions[zoneLabel(zone)] = action }
 
+    /// Runs a zone's action on request (Try It, or a click on the zone in the menu), whatever the mode.
     func testAction(zone: Int) {
         let action = action(for: zone)
         ripple = (zone, (ripple?.id ?? 0) + 1)
-        _ = performAction(action)
-        if presentsUI && config.showTapFeedback && action.kind != .privacyGuard { TapFeedback.shared.show(zone: zone, grid: grid, action: action) }
+        let error = performAction(action)
+        var title: String? = nil
+        if error == nil && action.kind == .muteMic { title = micToggle.isEngaged ? "Microphone muted" : "Microphone on" }
+        if presentsUI && config.showTapFeedback && action.kind != .privacyGuard { TapFeedback.shared.show(zone: zone, grid: grid, action: action, title: error ?? title) }
     }
 
     func setLaunchAtLogin(_ on: Bool) {

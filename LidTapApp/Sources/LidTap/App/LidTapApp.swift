@@ -20,7 +20,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let app = AppModel.shared
             app.start()
             // First run (nothing learned yet) or launched with --settings: open Settings.
-            if CommandLine.arguments.contains("--settings") || app.dataset.samples.isEmpty { app.showSettings() }
+            if app.dataset.samples.isEmpty {
+                app.showSettings(pane: SettingsPane.welcome.rawValue)
+            } else if CommandLine.arguments.contains("--settings") {
+                app.showSettings()
+            }
         }
     }
 

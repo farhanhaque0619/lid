@@ -27,8 +27,8 @@ struct MenuPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             header(enabled: $app.config.enabled)
                 .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
-            if let notice {
-                noticeRow(notice).padding(.horizontal, 14).padding(.bottom, 10)
+            ForEach(notices.indices, id: \.self) { i in
+                noticeRow(notices[i]).padding(.horizontal, 14).padding(.bottom, 10)
             }
             if app.isTrained {
                 map.padding(.horizontal, 14)
@@ -80,22 +80,28 @@ struct MenuPanel: View {
         if app.isTraining { return "Learning your taps…" }
         guard app.isTrained else { return "Not calibrated yet" }
         let acc = app.accuracy.map { " · \(Int(($0 * 100).rounded()))% accurate" } ?? ""
-        return "Listening on \(app.grid.title)\(acc)"
+        return "\(app.config.practiceMode ? "Practice" : "Listening") on \(app.grid.title)\(acc)"
     }
 
     // MARK: Notices
 
     private struct Notice { let symbol: String; let text: String; let button: String?; let action: (() -> Void)? }
 
-    private var notice: Notice? {
+    /// What needs attention, most important first: a sensor problem, a missing permission, practice mode.
+    private var notices: [Notice] {
         if let e = app.status.error, !e.isEmpty {
-            return Notice(symbol: "exclamationmark.triangle.fill", text: e, button: nil, action: nil)
+            return [Notice(symbol: "exclamationmark.triangle.fill", text: e, button: nil, action: nil)]
         }
+        var out: [Notice] = []
         if !app.status.accessibility {
-            return Notice(symbol: "hand.raised.fill", text: "To switch desktops and control music, allow LidTap in Accessibility.",
-                          button: "Allow…", action: { Permissions.requestAccessibility(); Permissions.openPrivacyPane("Privacy_Accessibility") })
+            out.append(Notice(symbol: "hand.raised.fill", text: "To switch desktops, control music and press shortcuts, allow LidTap in Accessibility.",
+                              button: "Allow…", action: { Permissions.requestAccessibility(); Permissions.openPrivacyPane("Privacy_Accessibility") }))
         }
-        return nil
+        if app.isTrained && app.config.practiceMode {
+            out.append(Notice(symbol: "graduationcap.fill", text: "Practice mode: taps show their zone, nothing runs. Turn actions on when the readings look right.",
+                              button: "Turn On Actions", action: { app.config.practiceMode = false }))
+        }
+        return out
     }
 
     private func noticeRow(_ n: Notice) -> some View {
@@ -117,24 +123,36 @@ struct MenuPanel: View {
 
     @ViewBuilder
     private var lastTap: some View {
-        HStack(spacing: 6) {
-            if let r = app.lastRecord {
-                Image(systemName: icon(r.outcome)).foregroundStyle(color(r.outcome))
-                Text(describe(r)).lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 4)
-                Text(r.date, style: .relative).foregroundStyle(.tertiary).monospacedDigit()
-            } else {
-                Text("Tap a zone on your screen, or click one here to try it.").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                if let r = app.lastRecord {
+                    Image(systemName: icon(r.outcome)).foregroundStyle(color(r.outcome))
+                    Text(describe(r)).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Text(r.date, style: .relative).foregroundStyle(.tertiary).monospacedDigit()
+                } else {
+                    Text("Tap a zone on your screen, or click one here to try it.").foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            // Why, and what to do about it: the answer to "that tap did nothing".
+            if let tip = app.lastRecord?.tip {
+                Text(tip)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 20)
             }
         }
-        .font(.caption)
     }
 
     private func describe(_ r: TapRecord) -> String {
         let zone = r.label.flatMap(zoneIndex).map { "Zone \($0 + 1)" }
         switch r.outcome {
         case .acted: return [zone, r.detail].compactMap { $0 }.joined(separator: " · ")
-        case .rejected: return "Not sure which zone"
+        case .practiced: return [zone, r.detail].compactMap { $0 }.joined(separator: " · ")
+        case .confirming: return [zone, r.detail].compactMap { $0 }.joined(separator: " · ")
+        case .rejected: return r.detail.hasPrefix("Too soft") ? "Too soft" : r.detail
         case .ignored: return r.detail
         case .guarded: return "Ignored while Privacy Guard is on"
         case .recorded: return r.detail
@@ -145,6 +163,8 @@ struct MenuPanel: View {
     private func icon(_ o: TapRecord.Outcome) -> String {
         switch o {
         case .acted: "checkmark.circle.fill"
+        case .practiced: "graduationcap.fill"
+        case .confirming: "hand.tap.fill"
         case .rejected: "questionmark.circle.fill"
         case .ignored, .guarded: "minus.circle.fill"
         case .recorded: "record.circle"
@@ -155,7 +175,8 @@ struct MenuPanel: View {
     private func color(_ o: TapRecord.Outcome) -> Color {
         switch o {
         case .acted: .green
-        case .rejected: .orange
+        case .practiced: .blue
+        case .confirming, .rejected: .orange
         default: .secondary
         }
     }
@@ -217,15 +238,18 @@ struct ZoneActionMenu: View {
     var body: some View {
         let current = app.action(for: zone).kind
         Text("Zone \(zone + 1)")
-        ForEach(ActionKind.allCases.filter { $0 != .openApp }) { kind in
+        ForEach(ActionKind.allCases.filter { !$0.needsSetup }) { kind in
             Button {
-                app.setAction(ZoneAction(kind: kind), for: zone)
+                var a = ZoneAction(kind: kind)
+                a.confirmTwice = app.action(for: zone).confirmTwice
+                app.setAction(a, for: zone)
             } label: {
                 Label(kind.title, systemImage: current == kind ? "checkmark" : kind.symbol)
             }
         }
         Divider()
-        Button("Open App…") { dismiss(); app.showSettings(pane: "zones", zone: zone) }
+        Button("Open App…") { dismiss(); app.showSettings(pane: "zones", zone: zone, pickApp: true) }
+        Button("Keyboard Shortcut, Link or Apple Shortcut…") { dismiss(); app.showSettings(pane: "zones", zone: zone) }
     }
 }
 

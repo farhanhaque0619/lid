@@ -2,11 +2,12 @@ import Charts
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case zones, training, detection, permissions, general
+    case welcome, zones, training, detection, permissions, general
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var symbol: String {
         switch self {
+        case .welcome: "hand.wave"
         case .zones: "rectangle.split.2x2"
         case .training: "chart.bar.xaxis"
         case .detection: "waveform.path.ecg"
@@ -32,6 +33,7 @@ struct SettingsView: View {
         } detail: {
             Group {
                 switch pane.wrappedValue ?? .zones {
+                case .welcome: WelcomePane()
                 case .zones: ZonesPane()
                 case .training: TrainingPane()
                 case .detection: DetectionPane()
@@ -69,13 +71,18 @@ private struct ZonesPane: View {
             }
 
             Section("Zone \(selected + 1)") {
-                Picker("Action", selection: Binding(
-                    get: { current.kind },
-                    set: { kind in kind == .openApp ? (choosingApp = true) : app.setAction(ZoneAction(kind: kind), for: selected) })) {
-                    ForEach(ActionKind.allCases) { kind in
-                        Label(kind.title, systemImage: kind.symbol).tag(kind)
+                Picker("Action", selection: Binding(get: { current.kind }, set: { choose($0) })) {
+                    ForEach(ActionGroup.all) { group in
+                        Section(group.name) {
+                            ForEach(group.kinds) { kind in
+                                Label(kind.title, systemImage: kind.symbol).tag(kind)
+                            }
+                        }
                     }
                 }
+                Text(current.kind.detail)
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if current.kind == .openApp {
                     LabeledContent("App") {
                         HStack(spacing: 8) {
@@ -85,11 +92,53 @@ private struct ZonesPane: View {
                         }
                     }
                 }
+                if current.kind == .shortcut {
+                    LabeledContent("Keys") {
+                        ShortcutRecorder(combo: Binding(get: { current.keyCombo }, set: { combo in update { $0.keyCombo = combo } }))
+                    }
+                    Text("Click Record, then press the combination: ⇧⌘4 for a screenshot, ⌘Space for Spotlight, or a shortcut you gave an app. Combinations macOS reserves for itself, such as ⌘Tab, can't be recorded.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if current.kind == .runShortcut {
+                    LabeledContent("Shortcut name") {
+                        HStack(spacing: 8) {
+                            TextField("Exactly as named in the Shortcuts app", text: textBinding)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(minWidth: 240)
+                            Button("Open Shortcuts") { ActionRunner.openApp(bundleID: "com.apple.shortcuts", then: nil) }
+                        }
+                    }
+                    Text("Anything a Shortcut can do, a tap can do: toggle a Focus, start a timer, run a script. It runs in the background; the first run may show a permission prompt from Shortcuts.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if current.kind == .openLink {
+                    LabeledContent("Link") {
+                        TextField("https://…", text: textBinding)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 300)
+                    }
+                    if let t = current.text, !t.trimmingCharacters(in: .whitespaces).isEmpty, !current.isConfigured {
+                        Label("Enter a full web address, or a link such as shortcuts://run-shortcut?name=Focus", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text("Opens in your default browser, or in the app that owns the link. LidTap itself never connects to anything.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if current.kind != .none {
+                    Toggle(isOn: Binding(get: { current.confirmTwice }, set: { on in update { $0.confirmTwice = on } })) {
+                        Text("Tap twice to run")
+                        Text("The first tap shows what would run; a second tap in the same zone within three seconds runs it. Good for anything you'd rather not trigger by accident.")
+                    }
+                }
                 LabeledContent {
                     Button("Try It") { app.testAction(zone: selected) }
-                        .disabled(current.kind == .none || (current.kind == .openApp && current.appBundleID == nil))
+                        .disabled(current.kind == .none || !current.isConfigured)
                 } label: {
-                    Text(current.kind.detail).foregroundStyle(.secondary)
+                    Text("Runs this zone's action right now, so you can check it does what you expect.").foregroundStyle(.secondary)
+                }
+                if let hint = current.setupHint {
+                    Label(hint, systemImage: "exclamationmark.circle").foregroundStyle(.orange)
                 }
                 if current.kind.needsAccessibility && !app.status.accessibility {
                     Label("Needs Accessibility. Allow it in Permissions.", systemImage: "exclamationmark.triangle.fill")
@@ -114,7 +163,8 @@ private struct ZonesPane: View {
             if let z = app.settingsFocusZone, z < app.grid.count {
                 selected = z
                 app.settingsFocusZone = nil
-                if app.action(for: z).kind != .openApp { choosingApp = true }
+                if app.settingsFocusPicksApp { choosingApp = true }
+                app.settingsFocusPicksApp = false
             }
         }
         .onChange(of: app.grid) { selected = 0 }
@@ -133,6 +183,24 @@ private struct ZonesPane: View {
                 choosingApp = false
             } cancel: { choosingApp = false }
         }
+    }
+
+    /// Picks a new kind for the selected zone, keeping its "tap twice" choice. Open App goes through the chooser.
+    private func choose(_ kind: ActionKind) {
+        if kind == .openApp { choosingApp = true; return }
+        var a = ZoneAction(kind: kind)
+        a.confirmTwice = app.action(for: selected).confirmTwice
+        app.setAction(a, for: selected)
+    }
+
+    private func update(_ change: (inout ZoneAction) -> Void) {
+        var a = app.action(for: selected)
+        change(&a)
+        app.setAction(a, for: selected)
+    }
+
+    private var textBinding: Binding<String> {
+        Binding(get: { app.action(for: selected).text ?? "" }, set: { value in update { $0.text = value } })
     }
 }
 
@@ -247,6 +315,12 @@ private struct TrainingPane: View {
                 HStack {
                     if app.isTraining { ProgressView().controlSize(.small); Text("Learning your taps…") }
                     Spacer()
+                    Button("Reset") {
+                        app.config.modelChoice = "auto"
+                        app.config.minConfidence = AppConfig().minConfidence
+                        app.config.rejectFactor = AppConfig().rejectFactor
+                    }
+                    .help("Back to the defaults: automatic recogniser, 60% confidence, 2.0× unfamiliar")
                     Button("Retrain") { app.retrain() }.disabled(app.isTraining)
                     Button("Calibrate…") { app.startCalibration() }
                 }
@@ -425,7 +499,7 @@ private struct DetectionPane: View {
                 .monospacedDigit()
             }
 
-            Section("Sensitivity") {
+            Section {
                 slider("Minimum tap strength", "Softer taps are not recorded or acted on. Lower it only if crisp taps are being refused", $app.config.minTapStrength, 1.5...10, 0.5) { String(format: "%.1f °/s", $0) }
                 slider("Trigger", "How far above the resting noise a tap must rise", $app.config.detector.k, 2...15, 0.5) { String(format: "%.1f× noise", $0) }
                 slider("Minimum", "Raise if bumps register as taps. Lower if gentle taps are missed", $app.config.detector.minThreshold, 0.3...20, 0.1) { String(format: "%.1f °/s", $0) }
@@ -435,11 +509,30 @@ private struct DetectionPane: View {
                     Text("Ignore taps while typing or moving the lid")
                     Text("Keeps keystrokes, clicks and lid adjustments from counting as taps.")
                 }
+            } header: {
+                Text("Sensitivity")
+            } footer: {
+                HStack {
+                    Text("The defaults suit most Macs. Change one thing at a time and watch the trace.")
+                    Spacer()
+                    Button("Reset to Defaults") {
+                        app.config.detector = DetectorSettings()
+                        app.config.minTapStrength = AppConfig().minTapStrength
+                    }
+                }
             }
 
             Section("Recent taps") {
                 if let last = app.lastRecord {
                     TapWaveform(gyro: last.gyro).frame(height: 56)
+                    if let tip = last.tip {
+                        Label {
+                            Text(tip).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        } icon: {
+                            Image(systemName: "lightbulb")
+                        }
+                        .foregroundStyle(.secondary)
+                    }
                     ForEach(app.recent.prefix(8)) { r in
                         LabeledContent {
                             HStack(spacing: 10) {
@@ -535,6 +628,12 @@ private struct GeneralPane: View {
                 Toggle("Open at login", isOn: Binding(get: { app.launchAtLogin }, set: { app.setLaunchAtLogin($0) }))
             }
             Section {
+                Toggle(isOn: $app.config.practiceMode) {
+                    Text("Practice mode")
+                    Text("Taps show which zone they hit and nothing runs. On after a fresh install; also handy whenever you want to check what LidTap sees.")
+                }
+            }
+            Section {
                 Toggle(isOn: $app.config.showTapFeedback) {
                     Text("Show each tap on screen")
                     Text("A ripple in the zone you tapped, with the action's name.")
@@ -544,6 +643,9 @@ private struct GeneralPane: View {
                 Text("Feedback")
             }
             Section {
+                LabeledContent("Help") {
+                    Button("Show Welcome") { app.showSettings(pane: SettingsPane.welcome.rawValue) }
+                }
                 LabeledContent("Data") {
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.dataDirectory]) }
                 }
@@ -558,6 +660,111 @@ private struct GeneralPane: View {
             } footer: {
                 Text("Built from source for private use. If you share anything based on this app, credit \"Based on LidTap by Yemcube\" with a link to instagram.com/yem.cube.")
             }
+        }
+    }
+}
+
+// MARK: - Welcome
+
+/// First-run checklist with live status, and the explanations people otherwise have to find in the README.
+private struct WelcomePane: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let sensorOn = app.status.rate > 500
+        let sensorDetail: String = app.status.error
+            ?? (sensorOn ? String(format: "Streaming at %.0f Hz.", app.status.rate) : "Starting. If it stays off, allow Input Monitoring in Permissions.")
+        let accessibilityButton: (String, () -> Void)? = app.status.accessibility ? nil
+            : ("Allow…", { Permissions.requestAccessibility(); Permissions.openPrivacyPane("Privacy_Accessibility") })
+        let calibrationDetail: String = app.isTrained
+            ? "\(app.dataset.zoneTapCount) taps recorded on \(app.grid.title)" + (app.accuracy.map { String(format: ", %.0f%% land in the right zone.", $0 * 100) } ?? ".")
+            : "About two minutes: tap each zone a few times so LidTap learns your Mac, then let it hear 20 seconds of typing and bumps."
+        let calibrateButton: (String, () -> Void)? = (app.isTrained ? "Calibrate Again…" : "Calibrate…", { app.startCalibration() })
+        let practiceButton: (String, () -> Void)? = app.isTrained && app.config.practiceMode ? ("Turn On Actions", { app.config.practiceMode = false }) : nil
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Tap your screen. LidTap does the rest.").font(.title2.weight(.semibold))
+                    Text("A light tap on the lid twists the whole laptop a tiny amount. The motion sensor in the base feels that twist, and LidTap learns what a tap in each zone of your screen feels like on your Mac. Everything happens on this Mac; nothing is sent anywhere.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("Get set up") {
+                step(1, "Motion sensor", symbol: "gyroscope", done: sensorOn, detail: sensorDetail, button: nil)
+                step(2, "Accessibility", symbol: "accessibility", done: app.status.accessibility,
+                     detail: "Lets LidTap press the keys behind Desktop Left and Right, media keys, Lock Screen and your own shortcuts. macOS asks you; LidTap can't grant it itself.",
+                     button: accessibilityButton)
+                step(3, "Calibrate", symbol: "scope", done: app.isTrained, detail: calibrationDetail, button: calibrateButton)
+                step(4, "Practise, then turn actions on", symbol: "graduationcap", done: app.isTrained && !app.config.practiceMode,
+                     detail: "In practice mode every tap shows the zone it hit and nothing runs. When the readings look right, turn actions on.",
+                     button: practiceButton)
+            }
+
+            Section("Good taps") {
+                bullet("hand.point.up.left", "A quick, light flick with a fingertip, near the corner dot you calibrated on. Never press: force gains nothing and can mark the display.")
+                bullet("timer", "Wait about half a second between taps.")
+                bullet("hand.raised.slash", "Hands off the keyboard and trackpad: a click, a scroll or a moving pointer makes LidTap ignore the tap on purpose.")
+                bullet("laptopcomputer", "Same desk and lid angle as when you calibrated. Moving to the sofa? Add a few taps there with Calibrate Again.")
+            }
+
+            Section("What each tap tells you") {
+                outcome("checkmark.circle.fill", Color.green, "Ran", "The zone was recognised and its action ran.")
+                outcome("graduationcap.fill", Color.blue, "Practice", "Recognised; nothing ran because practice mode is on.")
+                outcome("hand.tap.fill", Color.orange, "Tap again", "This zone asks for a second tap within three seconds.")
+                outcome("questionmark.circle.fill", Color.orange, "Not sure", "Below the confidence floor, or unlike anything recorded, so LidTap did nothing rather than guess.")
+                outcome("minus.circle.fill", Color.secondary, "Ignored", "Typing, a click, a moving pointer or a moving lid right around the tap. The menu bar panel says which, and what to do.")
+            }
+
+            Section("If something's off") {
+                bullet("questionmark.circle", "Taps say \"Not sure\": tap closer to the calibration dot, or add taps to that zone in Training.")
+                bullet("speaker.slash", "Taps say \"Too soft\": flick a little more crisply. If good taps are still refused, lower the minimum in Detection.")
+                bullet("waveform.path.ecg", "Nothing happens at all: open the menu bar panel. It shows the last tap and why, and Detection shows the live motion trace.")
+                bullet("arrow.counterclockwise", "After reinstalling, switch LidTap off and on again under Privacy & Security › Accessibility: macOS ties the grant to each build.")
+                bullet("hand.raised", "Want it quiet for a while? The switch at the top of the menu bar panel pauses it.")
+            }
+
+            Section {
+                LabeledContent("Based on", value: "LidTap by Yemcube (Instagram @yem.cube)")
+            } footer: {
+                Text("Free for private use under the LidTap License. Share anything based on it with that credit, and ask the author before any commercial use.")
+            }
+        }
+    }
+
+    private func step(_ n: Int, _ title: String, symbol: String, done: Bool, detail: String, button: (String, () -> Void)?) -> some View {
+        LabeledContent {
+            HStack(spacing: 10) {
+                Label(done ? "Done" : "To do", systemImage: done ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(done ? Color.green : Color.secondary)
+                    .labelStyle(.titleAndIcon)
+                if let (label, action) = button { Button(label, action: action) }
+            }
+        } label: {
+            Label {
+                Text("\(n). \(title)")
+                Text(detail)
+            } icon: {
+                Image(systemName: symbol)
+            }
+        }
+    }
+
+    private func bullet(_ symbol: String, _ text: String) -> some View {
+        Label {
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: symbol).foregroundStyle(.secondary)
+        }
+    }
+
+    private func outcome(_ symbol: String, _ color: Color, _ name: String, _ text: String) -> some View {
+        Label {
+            (Text(name).bold() + Text(": " + text)).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: symbol).foregroundStyle(color)
         }
     }
 }

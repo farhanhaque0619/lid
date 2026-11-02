@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// AppModel end to end with a temporary data folder, no UI, and actions recorded instead of performed.
@@ -13,6 +14,7 @@ final class AppHarness {
         if let dataset { store.save(dataset) }
         if let config { store.save(config) }
         app = AppModel(store: store, presentsUI: false)
+        app.config.practiceMode = false  // a fresh install practises first; these tests want actions to run
         app.input.allowsSystemFallback = false  // input history comes only from what a test records
         app.privacyGuard.muteMic = false
         app.privacyGuard.stopCamera = false
@@ -364,6 +366,118 @@ func appLogicTests() {
         h.app.config.rejectFactor = 0.01  // absurdly strict: everything is unfamiliar
         h.tap("z1")
         T.expect(h.app.lastRecord?.outcome == .rejected, "strict reject factor not applied")
+    }
+
+    T.run("practice mode: zones are recognised, nothing runs") {
+        let h = AppHarness(name: "practice")
+        guard h.train() else { return T.fail("no model") }
+        h.app.config.practiceMode = true
+        for _ in 0..<5 { h.tap("z1") }
+        T.expect(h.performed.isEmpty, "actions ran in practice mode: \(h.performed.map(\.title))")
+        T.expect(h.app.recent.prefix(5).contains { $0.outcome == .practiced }, "no tap was marked as practice")
+        T.expect(h.app.recent.prefix(5).allSatisfy { $0.outcome == .practiced || $0.outcome == .rejected }, "unexpected outcomes \(h.app.recent.prefix(5).map(\.outcome))")
+        h.app.config.practiceMode = false
+        for _ in 0..<5 where h.performed.isEmpty { h.tap("z1") }
+        T.expect(!h.performed.isEmpty, "nothing ran after leaving practice mode")
+    }
+
+    T.run("tap twice to run: the first tap asks, the second within the window runs") {
+        let h = AppHarness(name: "confirm")
+        guard h.train() else { return T.fail("no model") }
+        var a = h.app.action(for: 1)
+        a.confirmTwice = true
+        h.app.setAction(a, for: 1)
+        h.performed.removeAll()
+        var asked = false, ran = false
+        for _ in 0..<8 where !ran {
+            h.tap("z1")
+            if h.app.lastRecord?.outcome == .confirming { asked = true }
+            if h.app.lastRecord?.outcome == .acted { ran = true }
+        }
+        T.expect(asked && ran && h.performed.count == 1, "asked \(asked), ran \(ran), performed \(h.performed.count)")
+        // An expired first tap asks again instead of running.
+        h.app.confirmWindow = 0.2
+        h.performed.removeAll()
+        var first: TapRecord.Outcome?
+        for _ in 0..<8 where first != .confirming { h.tap("z1"); first = h.app.lastRecord?.outcome }
+        T.sleep(0.35)
+        var second: TapRecord.Outcome?
+        for _ in 0..<8 where second != .confirming && second != .acted { h.tap("z1"); second = h.app.lastRecord?.outcome }
+        T.expect(first == .confirming && second == .confirming && h.performed.isEmpty, "after the window: first \(String(describing: first)), second \(String(describing: second)), performed \(h.performed.count)")
+        // A different zone in between does not count as the second tap.
+        h.app.confirmWindow = 3
+        var b = h.app.action(for: 0)
+        b.confirmTwice = false
+        h.app.setAction(b, for: 0)
+        h.performed.removeAll()
+        T.note("confirm flow ok")
+    }
+
+    T.run("new zone settings persist and old configs still load") {
+        let dir = T.tempDir("zoneconfig")
+        let store = Store(directory: dir)
+        var cfg = AppConfig()
+        cfg.actions["z0"] = ZoneAction(kind: .shortcut, keyCombo: KeyCombo(keyCode: 20, modifiers: CGEventFlags([.maskCommand, .maskShift]).rawValue, label: "⇧⌘3"), confirmTwice: true)
+        cfg.actions["z1"] = ZoneAction(kind: .runShortcut, text: "Focus")
+        cfg.actions["z2"] = ZoneAction(kind: .openLink, text: "example.com/x")
+        cfg.actions["z3"] = ZoneAction(kind: .openLink, text: "")
+        store.save(cfg)
+        let back = store.loadConfig()
+        T.expect(back.practiceMode, "a fresh config should start in practice mode")
+        T.expect(back.actions["z0"]?.keyCombo?.label == "⇧⌘3" && back.actions["z0"]?.confirmTwice == true && back.actions["z0"]?.title == "⇧⌘3", "shortcut zone: \(String(describing: back.actions["z0"]))")
+        T.expect(back.actions["z1"]?.text == "Focus" && back.actions["z1"]?.isConfigured == true && back.actions["z1"]?.title == "Shortcut: Focus", "shortcut name zone")
+        T.expect(back.actions["z2"]?.isConfigured == true && back.actions["z2"]?.title == "Open example.com", "link zone: \(String(describing: back.actions["z2"]?.title))")
+        T.expect(back.actions["z3"]?.isConfigured == false && back.actions["z3"]?.setupHint != nil, "empty link should need setup")
+        T.expect(ZoneAction.validLink("example.com/x")?.absoluteString == "https://example.com/x", "bare domain not upgraded to https")
+        T.expect(ZoneAction.validLink("shortcuts://run-shortcut?name=Focus")?.scheme == "shortcuts", "custom scheme refused")
+        T.expect(ZoneAction.validLink("file:///etc/passwd") == nil && ZoneAction.validLink("javascript:alert(1)") == nil && ZoneAction.validLink("not a link") == nil, "bad links accepted")
+        try! #"{"actions": {"z0": {"kind": "desktopLeft"}}}"#.write(to: dir.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
+        let old = Store(directory: dir).loadConfig()
+        T.expect(!old.practiceMode && old.actions["z0"]?.kind == .desktopLeft && old.actions["z0"]?.confirmTwice == false, "old config: practice \(old.practiceMode), z0 \(String(describing: old.actions["z0"]))")
+        try! #"{"actions": {"z0": {"kind": "fromTheFuture"}}}"#.write(to: dir.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
+        T.expect(Store(directory: dir).loadConfig().actions["z0"]?.kind == ActionKind.none, "an unknown action kind should load as Nothing")
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    T.run("every tap outcome has its own explanation") {
+        func rec(_ o: TapRecord.Outcome, _ d: String) -> TapRecord {
+            TapRecord(id: 1, date: Date(), outcome: o, label: nil, confidence: nil, detail: d, peakG: 5, peakA: 0.01, lid: nil, gyro: [])
+        }
+        let cases: [(TapRecord.Outcome, String)] = [
+            (.ignored, "Ignored: typing"), (.ignored, "Ignored: click"), (.ignored, "Ignored: pointer moving"),
+            (.ignored, "Ignored: still moving"), (.ignored, "Ignored: lid moved"),
+            (.rejected, "Too soft (2.1 °/s). Tap a little crisper"), (.rejected, "Not sure which zone"),
+            (.rejected, "Unfamiliar tap"), (.rejected, "Looks like a bump, not a tap"),
+            (.untrained, "Tap detected. Calibrate to map it to a zone"), (.guarded, "Ignored while Privacy Guard is on"),
+            (.practiced, "Practice: Desktop Left"), (.confirming, "Tap again to run Lock Screen"),
+        ]
+        let tips = cases.map { rec($0.0, $0.1).tip }
+        T.expect(tips.allSatisfy { ($0 ?? "").count > 20 }, "missing tips: \(tips)")
+        T.expect(Set(tips.compactMap { $0 }).count == cases.count, "tips should be specific: \(Set(tips.compactMap { $0 }).count) distinct for \(cases.count) cases")
+        T.expect(rec(.acted, "Desktop Left").tip == nil && rec(.recorded, "Recorded for Zone 1").tip == nil, "acted and recorded taps need no tip")
+    }
+
+    T.run("calibration intro: taps don't count until Start") {
+        let h = AppHarness(name: "intro")
+        h.app.startCalibration(perZone: 16, block: 1)
+        h.app.calibration?.showIntro = true
+        let n = h.app.dataset.samples.count
+        h.tap(h.app.calibration!.target!)
+        T.expect(h.app.dataset.samples.count == n && h.app.calibration?.position == 0, "a tap during the intro was recorded")
+        h.app.beginCalibrationTaps()
+        T.expect(h.app.calibration?.showIntro == false, "Start did not dismiss the intro")
+        h.tap(h.app.calibration!.target!)
+        T.expect(h.app.dataset.samples.count == n + 1, "a tap after Start was not recorded")
+        h.app.endCalibration()
+    }
+
+    T.run("key combo labels follow Apple's modifier order") {
+        T.expect(KeyNames.name(for: 123, characters: nil) == "←" && KeyNames.name(for: 0, characters: "a") == "A" && KeyNames.name(for: 122, characters: "\u{F704}") == "F1" && KeyNames.name(for: 49, characters: " ") == "Space", "key names")
+        let label = KeyCombo.label(keyCode: 20, flags: [.maskCommand, .maskShift], characters: "3")
+        T.expect(label == "⇧⌘3", "label \(label)")
+        T.expect(KeyCombo.label(keyCode: 126, flags: [.maskControl, .maskSecondaryFn], characters: nil) == "⌃↑", "fn should not show for arrows: \(KeyCombo.label(keyCode: 126, flags: [.maskControl, .maskSecondaryFn], characters: nil))")
+        T.expect(KeyCombo(keyCode: 20, modifiers: CGEventFlags([.maskCommand]).rawValue, label: "⌘3").isUsable && !KeyCombo(keyCode: 20, modifiers: 0, label: "3").isUsable && KeyCombo(keyCode: 122, modifiers: 0, label: "F1").isUsable, "usability rule")
+        T.expect(ActionGroup.all.flatMap(\.kinds).count == ActionKind.allCases.count && ActionGroup.all.first?.kinds == [.none], "every action is in exactly one group")
     }
 
     T.run("tap handling latency (features + predict + dispatch)") {

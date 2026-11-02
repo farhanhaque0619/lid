@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import SwiftUI
 
 /// True if the PNG has real content (not a single flat colour).
@@ -21,6 +22,7 @@ func uiTests() {
     print("\n▶ UI snapshots (rendered offscreen into test-artifacts/)")
     let h = AppHarness(name: "ui")
     guard h.train() else { return T.fail("no model for UI tests") }
+    h.app.setAction(ZoneAction(kind: .shortcut, keyCombo: KeyCombo(keyCode: 20, modifiers: CGEventFlags([.maskCommand, .maskShift]).rawValue, label: "⇧⌘3"), confirmTwice: true), for: 1)
     h.tap("z1")
     h.tap("z2", gated: "typing")
 
@@ -35,6 +37,10 @@ func uiTests() {
     shot("menu panel light mode", CGSize(width: 320, height: 560), dark: false, MenuPanel().environment(h.app))
     let fresh = AppHarness(name: "ui-untrained", dataset: nil)
     shot("menu panel untrained", CGSize(width: 320, height: 560), MenuPanel().environment(fresh.app))
+    h.app.config.practiceMode = true
+    h.tap("z0")
+    shot("menu panel practice", CGSize(width: 320, height: 620), MenuPanel().environment(h.app))
+    h.app.config.practiceMode = false
 
     for pane in SettingsPane.allCases {
         UserDefaults.standard.set(pane.rawValue, forKey: "settingsPane")
@@ -55,6 +61,8 @@ func uiTests() {
 
     let screen = NSScreen.builtIn?.frame.size ?? CGSize(width: 1470, height: 956)
     let size = CGSize(width: screen.width / 2, height: screen.height / 2)
+    h.app.calibration = CalibrationState(grid: h.app.grid, perZone: 15, sequence: Array(repeating: "z0", count: 60), showIntro: true)
+    shot("calibration intro", size, CalibrationView().environment(h.app))
     h.app.calibration = CalibrationState(grid: h.app.grid, perZone: 15, sequence: ["z2", "z2", "z0", "z1", "z3"], position: 0)
     shot("calibration taps", size, CalibrationView().environment(h.app))
     h.app.calibration?.phase = .noisePrompt

@@ -40,6 +40,9 @@ struct AppConfig: Codable, Equatable {
     var playSounds = true
     var guardMutesMic = true
     var guardStopsCamera = true
+    /// Taps are recognised and shown, but no action runs. On for a fresh install until the user turns actions on;
+    /// settings files written before this existed keep acting (see the decoder).
+    var practiceMode = true
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -56,6 +59,7 @@ struct AppConfig: Codable, Equatable {
         playSounds = try c.decodeIfPresent(Bool.self, forKey: .playSounds) ?? d.playSounds
         guardMutesMic = try c.decodeIfPresent(Bool.self, forKey: .guardMutesMic) ?? d.guardMutesMic
         guardStopsCamera = try c.decodeIfPresent(Bool.self, forKey: .guardStopsCamera) ?? d.guardStopsCamera
+        practiceMode = try c.decodeIfPresent(Bool.self, forKey: .practiceMode) ?? false
     }
 }
 
