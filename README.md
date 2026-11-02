@@ -54,7 +54,7 @@ why.
    workflow: open [Actions](https://github.com/farhanhaque0619/lid/actions/workflows/build.yml), pick the
    latest run, and download the **LidTap-dmg** artifact (a zip holding `LidTap.dmg` and `SHA256SUMS.txt`;
    GitHub asks you to be signed in). Publishing a release is one step: **Releases › Draft a new release**,
-   create the tag `v1.0.0` on this branch and publish; the workflow then builds from that tag and attaches
+   create the tag `v1.1.0` on this branch and publish; the workflow then builds from that tag and attaches
    the DMG to the release.
 2. Open the disk image. Optional but recommended: confirm this Mac has the sensor first. In Terminal:
    ```bash
