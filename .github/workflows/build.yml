@@ -85,7 +85,7 @@ jobs:
           name: LidTap-dmg
           path: dist
 
-      - name: Create the GitHub Release with LidTap.dmg
+      - name: Create or update the GitHub Release with LidTap.dmg
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -105,5 +105,12 @@ jobs:
 
           SHA-256 of LidTap.dmg: \`${sha}\`
           NOTES
-          gh release create "$GITHUB_REF_NAME" dist/LidTap.dmg dist/SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --title "LidTap $GITHUB_REF_NAME" --notes-file notes.md
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # The release already exists (for example it was drafted in the GitHub UI, which also creates the
+            # tag): attach the freshly built files to it and refresh the notes.
+            gh release upload "$GITHUB_REF_NAME" dist/LidTap.dmg dist/SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/LidTap.dmg dist/SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" --title "LidTap $GITHUB_REF_NAME" --notes-file notes.md
+          fi

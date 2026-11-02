@@ -116,3 +116,21 @@ grep -rn 'Process()\|osascript\|NSAppleScript' LidTapApp/Sources
 ```
 
 The first prints nothing. The second prints only the Google Meet tab finder in `MeetingControl.swift`.
+
+## Build record
+
+First build from this repository, [run 1](https://github.com/farhanhaque0619/lid/actions/runs/41494249049)
+of the workflow on commit `8f7cf2c`:
+
+| | |
+|---|---|
+| Runner | GitHub `macos-15`, Apple Silicon |
+| Toolchain | Xcode 26.3, macOS 26.2 SDK, Swift 6.2.4 (so the Liquid Glass branch was compiled in) |
+| Compile | 52 s, three pre-existing warnings in `AppModel.swift`, no errors |
+| Tests | `ml`, `detector`, `logic`, `ui`: 69 passed, 0 failed, 0 skipped. Features match the Python prototype to 1e-13; on upstream's 60 recorded 2×2 taps the three recognisers cross-validate at 91 to 93%, and the app picked logistic regression at 95% |
+| Signature | `codesign --verify --strict --deep`: valid; `Signature=adhoc`, identifier `dev.lidtap.LidTap`, no team |
+| Linked frameworks | IOKit, CoreAudio, CoreMediaIO, ServiceManagement, AppKit, ApplicationServices, Charts, CoreFoundation, CoreGraphics, Foundation, SwiftUI, Symbols and the Swift runtime. No CFNetwork, no Network.framework |
+| Network symbols in the binary | none (checked with `nm -u`) |
+| Disk image | `LidTap.dmg`, 1.5 MB, SHA-256 `c00d60cd2e9d06fabb12d3dcafdac4571e16e7c3603681d2fb8b6a4a9282a692` |
+
+Every later run records the same checks in its log, and each release lists its own SHA-256.
