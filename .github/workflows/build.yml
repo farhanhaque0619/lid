@@ -1,0 +1,109 @@
+name: Build LidTap
+
+# Builds LidTap.app from this repository's source on a macOS runner, runs the side-effect-free test
+# suites, packages a drag-to-install LidTap.dmg, and (for v* tags) publishes it as a GitHub Release.
+# The app is ad hoc signed (no Developer ID, no notarization), exactly like the upstream build script.
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test and package
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the toolchain
+        run: |
+          # Prefer a released Xcode 26 when the runner image has one (macOS 26 SDK, Liquid Glass).
+          # Otherwise the default Xcode is used; Design.swift compiles the material fallback there.
+          latest="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort | tail -1 || true)"
+          if [ -n "$latest" ]; then
+            echo "Selecting $latest"
+            sudo xcode-select -s "$latest"
+          fi
+          xcodebuild -version
+          echo "SDK: $(xcrun --show-sdk-version) at $(xcrun --show-sdk-path)"
+          swiftc --version
+
+      - name: Build LidTap.app (ad hoc signed, not installed)
+        run: LidTapApp/scripts/build.sh --no-install
+
+      - name: Run the side-effect-free test suites (ml, detector, logic, ui)
+        # The hardware, actions, guard and e2e suites drive the real system and are deliberately not run.
+        run: LidTapApp/scripts/test.sh
+
+      - name: Package LidTap.dmg
+        run: LidTapApp/scripts/make-dmg.sh
+
+      - name: Verify the bundle
+        run: |
+          codesign --verify --strict --deep --verbose=2 LidTapApp/build/LidTap.app
+          codesign -dv LidTapApp/build/LidTap.app 2>&1 | grep -E 'Identifier|Signature|TeamIdentifier' || true
+          plutil -p LidTapApp/build/LidTap.app/Contents/Info.plist | grep -E 'CFBundle(Identifier|ShortVersionString|Version)|LSMinimumSystemVersion'
+          # No network symbols should be linked into the app binary.
+          if nm -u LidTapApp/build/LidTap.app/Contents/MacOS/LidTap | grep -Eiq 'URLSession|NWConnection|NWListener|CFSocket|_connect$|getaddrinfo'; then
+            echo "Unexpected network symbol in the binary" >&2; exit 1
+          fi
+          otool -L LidTapApp/build/LidTap.app/Contents/MacOS/LidTap
+          (cd LidTapApp/build && shasum -a 256 LidTap.dmg | tee SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LidTap-dmg
+          path: |
+            LidTapApp/build/LidTap.dmg
+            LidTapApp/build/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: LidTapApp/build/test-artifacts/
+          if-no-files-found: ignore
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LidTap-dmg
+          path: dist
+
+      - name: Create the GitHub Release with LidTap.dmg
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(cut -d' ' -f1 dist/SHA256SUMS.txt)"
+          cat > notes.md <<NOTES
+          LidTap built from this repository's source on a macOS runner (commit ${GITHUB_SHA}).
+          Ad hoc signed, not notarized. No network access, no account.
+
+          Based on [LidTap by Yemcube](https://www.instagram.com/yem.cube) (Instagram @yem.cube), under the LidTap License.
+
+          **Install:** download \`LidTap.dmg\`, open it, drag LidTap to Applications. The first launch is blocked by
+          Gatekeeper because the app is not notarized: on macOS 15 or later click Done, then System Settings ›
+          Privacy & Security › Open Anyway; on macOS 14 right-click the app › Open. The full walkthrough is in the README.
+
+          **Requires:** an Apple Silicon MacBook with the motion sensor (M2 or later, or M1 Pro/Max) on macOS 14 or later.
+          Run \`check_mac.sh\` from the disk image to confirm before installing.
+
+          SHA-256 of LidTap.dmg: \`${sha}\`
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/LidTap.dmg dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --title "LidTap $GITHUB_REF_NAME" --notes-file notes.md
