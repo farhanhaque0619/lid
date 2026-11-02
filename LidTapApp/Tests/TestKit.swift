@@ -114,15 +114,22 @@ func snapshot<V: View>(_ view: V, size: CGSize, name: String, dark: Bool = true)
     host.cacheDisplay(in: host.bounds, to: rep)
     // Views without their own background (the menu panel) come out transparent; flatten onto the window colour
     // so the PNG reads the way the real window does and white-on-dark text stays visible in previews.
-    let flat = NSImage(size: host.bounds.size)
-    flat.lockFocus()
-    window.backgroundColor.setFill()
-    NSBezierPath(rect: host.bounds).fill()
-    rep.draw(in: host.bounds)
-    flat.unlockFocus()
+    // Drawn into a fresh bitmap through NSGraphicsContext, the same way scripts/make_icon.swift renders the icon.
     let url = T.artifacts.appendingPathComponent("\(name).png")
-    let png = flat.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:))?.representation(using: .png, properties: [:])
-        ?? rep.representation(using: .png, properties: [:])
+    var png = rep.representation(using: .png, properties: [:])
+    let px = NSRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh)
+    if let flat = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh, bitsPerSample: 8,
+                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+       let ctx = NSGraphicsContext(bitmapImageRep: flat) {
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        window.backgroundColor.setFill()
+        NSBezierPath(rect: px).fill()
+        rep.draw(in: px)
+        ctx.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        png = flat.representation(using: .png, properties: [:]) ?? png
+    }
     try? png?.write(to: url)
     return url
 }

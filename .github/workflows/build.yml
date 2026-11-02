@@ -19,6 +19,12 @@ on:
 permissions:
   contents: read
 
+# One build at a time per branch: this account gets one macOS runner, and a second queued macOS job is
+# cancelled after a quarter of an hour. Newer pushes wait for the running build instead of racing it.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build, test and package
@@ -78,7 +84,8 @@ jobs:
           if-no-files-found: ignore
 
       - name: Snapshot preview in the log
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.preview == 'true'
+        # Opt in with the workflow_dispatch input, or put [preview] in the commit message.
+        if: (github.event_name == 'workflow_dispatch' && github.event.inputs.preview == 'true') || contains(github.event.head_commit.message, '[preview]')
         run: |
           # The UI snapshot tests render every screen offscreen. Print the key ones as small JPEGs, base64
           # encoded, so they can be reviewed from the log alone.

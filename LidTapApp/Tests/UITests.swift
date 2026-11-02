@@ -33,13 +33,15 @@ func uiTests() {
         }
     }
 
-    shot("menu panel trained", CGSize(width: 320, height: 560), MenuPanel().environment(h.app))
-    shot("menu panel light mode", CGSize(width: 320, height: 560), dark: false, MenuPanel().environment(h.app))
+    // The real menu panel sits on the menu bar window's material; give the snapshots the same kind of backdrop.
+    let darkPanel = Color(white: 0.12), lightPanel = Color(nsColor: .windowBackgroundColor)
+    shot("menu panel trained", CGSize(width: 320, height: 560), MenuPanel().environment(h.app).background(darkPanel))
+    shot("menu panel light mode", CGSize(width: 320, height: 560), dark: false, MenuPanel().environment(h.app).background(lightPanel))
     let fresh = AppHarness(name: "ui-untrained", dataset: nil)
-    shot("menu panel untrained", CGSize(width: 320, height: 560), MenuPanel().environment(fresh.app))
+    shot("menu panel untrained", CGSize(width: 320, height: 560), MenuPanel().environment(fresh.app).background(darkPanel))
     h.app.config.practiceMode = true
     h.tap("z0")
-    shot("menu panel practice", CGSize(width: 320, height: 620), MenuPanel().environment(h.app))
+    shot("menu panel practice", CGSize(width: 320, height: 620), MenuPanel().environment(h.app).background(darkPanel))
     h.app.config.practiceMode = false
 
     for pane in SettingsPane.allCases {
