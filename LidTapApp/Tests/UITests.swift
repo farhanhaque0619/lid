@@ -44,6 +44,7 @@ func uiTests() {
 
     for pane in SettingsPane.allCases {
         UserDefaults.standard.set(pane.rawValue, forKey: "settingsPane")
+        if pane == .zones { h.app.settingsFocusZone = 1 }  // the Keyboard Shortcut zone, with its recorder and "tap twice" on
         shot("settings \(pane.rawValue)", CGSize(width: 980, height: 700), SettingsView().environment(h.app))
     }
     UserDefaults.standard.set("zones", forKey: "settingsPane")

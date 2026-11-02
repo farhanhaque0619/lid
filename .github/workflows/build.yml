@@ -83,7 +83,7 @@ jobs:
           # The UI snapshot tests render every screen offscreen. Print the key ones as small JPEGs, base64
           # encoded, so they can be reviewed from the log alone.
           cd LidTapApp/build/test-artifacts
-          for f in settings_welcome settings_zones menu_panel_practice calibration_intro settings_detection menu_panel_trained calibration_done; do
+          for f in settings_welcome settings_zones settings_general menu_panel_practice menu_panel_trained calibration_intro calibration_done; do
             [ -f "$f.png" ] || { echo "missing $f.png"; continue; }
             sips -Z 820 -s format jpeg -s formatOptions 55 "$f.png" --out "$RUNNER_TEMP/$f.jpg" >/dev/null
             echo "=====BEGIN $f.jpg====="

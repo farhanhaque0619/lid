@@ -112,8 +112,18 @@ func snapshot<V: View>(_ view: V, size: CGSize, name: String, dark: Bool = true)
     host.layoutSubtreeIfNeeded()
     guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
     host.cacheDisplay(in: host.bounds, to: rep)
+    // Views without their own background (the menu panel) come out transparent; flatten onto the window colour
+    // so the PNG reads the way the real window does and white-on-dark text stays visible in previews.
+    let flat = NSImage(size: host.bounds.size)
+    flat.lockFocus()
+    window.backgroundColor.setFill()
+    NSBezierPath(rect: host.bounds).fill()
+    rep.draw(in: host.bounds)
+    flat.unlockFocus()
     let url = T.artifacts.appendingPathComponent("\(name).png")
-    try? rep.representation(using: .png, properties: [:])?.write(to: url)
+    let png = flat.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:))?.representation(using: .png, properties: [:])
+        ?? rep.representation(using: .png, properties: [:])
+    try? png?.write(to: url)
     return url
 }
 
